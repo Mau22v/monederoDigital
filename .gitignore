@@ -1,0 +1,9 @@
+# Llaves privadas: NUNCA se suben
+*priv*.pem
+*.key
+**/storage/app/keys/
+# Configuración local
+.env
+.env.*
+!.env.example
+.vscode/
