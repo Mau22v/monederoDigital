@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Versión** | 1.0 (borrador para revisión) |
+| **Versión** | 1.1 |
 | **Fecha** | 2026-11-07 |
 | **Responsables** | Mau (servidores Banco y Tienda, Laravel) y [compañero] (app Android, Kotlin) |
 | **Ubicación** | `docs/contrato-integracion.md` |
@@ -382,16 +382,29 @@ Cada rechazo se registra en la bitácora del servidor con su motivo (se muestra 
 - Cada mensaje usa una K nueva y un IV nuevo; nunca fijar valores para "probar" en el código de producción.
 - Si algo no verifica, **no se continúa**: se rechaza la operación.
 
-## 16. Pendientes por decidir
+## 16. Decisiones tomadas (antes pendientes)
 
-- [ ] **1. ¿Cómo llega la app a los servidores?** Opciones: (a) cada integrante levanta los dos servidores en su máquina (requiere el entorno PHP/Laravel y datos de prueba iguales); (b) los servidores de Mau se exponen en la red local (con WSL2 hace falta el modo de red espejo o reenvío de puertos); (c) un túnel temporal. Recomendado: (a) durante el desarrollo y una sola máquina para la demostración.
-- [ ] **2. Saldo inicial** de $10,000 por cuenta nueva (sección 14).
-- [ ] **3. Catálogo inicial:** lista de productos y precios (lo prepara Mau como datos de prueba).
-- [ ] **4. Vigencias** de tickets, pedidos y certificados (sección 14).
-- [ ] **5. Biometría:** confirmar que el emulador o teléfono del compañero permite probar la huella para desbloquear `Priv_U`.
+- [x] **1. Cómo llega la app a los servidores:** durante el desarrollo, la máquina de Mau (servidores en WSL, puertos 8001/8002); el emulador usa `10.0.2.2`. Si se cambia a máquinas independientes, solo cambia la URL base en la app y `BANCO_URL` en la Tienda.
+- [x] **2. Saldo inicial:** $10,000 por cuenta nueva.
+- [x] **3. Catálogo:** datos de prueba preparados por Mau.
+- [x] **4. Vigencias:** las de la sección 14.
+- [x] **5. Biometría:** se prueba en teléfonos con huella; el emulador queda para después, sin bloquear el avance.
 
 ## 17. Historial de cambios
 
 | Versión | Fecha | Cambio |
 |---|---|---|
 | 1.0 | 2026-11-07 | Borrador inicial. |
+| 1.1 | 2026-11-08 | Sección 16 resuelta; se agrega la sección 18 (endpoints de prueba de criptografía). |
+
+## 18. Endpoints de prueba de criptografía (solo desarrollo)
+
+Existen en **ambos** servidores, únicamente con `APP_ENV=local`. No forman parte del sistema final y se eliminan antes de la entrega.
+
+| Método y ruta | Entrada | Salida | Qué comprueba la app |
+|---|---|---|---|
+| `POST /api/dev/eco` | Sobre `{k, iv, ct}` con cualquier texto | Respuesta `{iv, ct}` cuyo texto plano es `eco:` + lo enviado | RSA-OAEP y AES-GCM de ida y de vuelta (misma K, IV nuevo) |
+| `GET /api/dev/firma` | nada | `{mensaje, firma}` (ticket de ejemplo firmado) | Verificar ECDSA con la llave pública EC pineada del servidor |
+| `POST /api/dev/verificar` | `{mensaje, firma, pub_u}` (`pub_u` en Base64 X.509) | `{valida: true/false}` | Que la firma DER de Android la acepta el servidor |
+
+Un sobre alterado en `/api/dev/eco` responde `400 {"error":"MENSAJE_CORRUPTO"}`.
