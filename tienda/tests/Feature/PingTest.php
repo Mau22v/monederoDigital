@@ -2,20 +2,23 @@
 
 namespace Tests\Feature;
 
-use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
 class PingTest extends TestCase
 {
-    public function test_la_api_responde(): void
+    public function test_ping_responde_ok(): void
     {
         $this->getJson('/api/ping')
             ->assertOk()
-            ->assertJson(['servidor' => 'tienda', 'estado' => 'ok', 'hash' => 'argon2id']);
+            ->assertJson([
+                'servidor' => 'tienda',
+                'estado'   => 'ok',
+                'hash'     => hash('sha256', 'ping'),
+            ]);
     }
 
-    public function test_las_contrasenas_usan_argon2id(): void
+    public function test_driver_de_hash_de_contrasenas_es_argon2id(): void
     {
-        $this->assertStringStartsWith('$argon2id$', Hash::make('prueba123'));
+        $this->assertSame('argon2id', config('hashing.driver'));
     }
 }

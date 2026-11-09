@@ -1,13 +1,21 @@
 <?php
 
+use App\Http\Controllers\Dev\CriptoPruebaController;
+use App\Services\CryptoService;
 use Illuminate\Support\Facades\Route;
 
-// Ruta de verificación: confirma que la API responde y que el hash es Argon2id
-Route::get('/ping', function () {
+Route::get('/ping', function (CryptoService $cripto) {
     return response()->json([
-        'servidor' => 'banco',
+        'servidor' => config('seguridad.nombre'),
         'estado'   => 'ok',
-        'hash'     => config('hashing.driver'),
-        'hora'     => now()->toIso8601String(),
+        'hash'     => $cripto->sha256Hex('ping'),
+        'hora'     => time(),
     ]);
 });
+
+// Endpoints de prueba de criptografía: SOLO en desarrollo. Quitar antes de la entrega final.
+if (app()->environment('local')) {
+    Route::post('/dev/eco', [CriptoPruebaController::class, 'eco']);
+    Route::get('/dev/firma', [CriptoPruebaController::class, 'firma']);
+    Route::post('/dev/verificar', [CriptoPruebaController::class, 'verificar']);
+}

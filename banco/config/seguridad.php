@@ -1,12 +1,17 @@
 <?php
 
 return [
-    // Secreto para firmar los tokens JWT de sesión (viene del .env)
+    'nombre' => 'banco',
+
+    // Sesión (JWT HS256, solo en el banco)
     'jwt_secret' => env('JWT_SECRET'),
+    'jwt_ttl'    => (int) env('JWT_TTL', 900),
 
-    // Vida del token en segundos (900 = 15 minutos)
-    'jwt_ttl' => (int) env('JWT_TTL', 900),
-
-    // Carpeta con las llaves del servidor (fuera de Git)
+    // Llaves propias (privadas: storage/app/keys, fuera de Git)
     'keys_path' => storage_path('app/keys'),
+    'rsa_priv'  => storage_path('app/keys/rsa_priv.pem'),
+    'ec_priv'   => storage_path('app/keys/ec_priv.pem'),
+
+    // Llaves públicas de otros (en el repositorio)
+    'tienda_ec_pub' => base_path('../claves-publicas/tienda_ec_pub.pem'),
 ];
