@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 namespace App\Support;
 
+use App\Models\Ticket;
 use App\Services\CryptoService;
 use InvalidArgumentException;
 
 /** Validaciones de formato. Todas lanzan FORMATO_INVALIDO si el dato no cumple. */
 final class Validar
 {
+    public const MAX_TICKETS_POR_SOLICITUD = 50;
+
     private static function falla(): never
     {
         throw new ApiError('FORMATO_INVALIDO');
@@ -88,6 +91,58 @@ final class Validar
     public static function timestamp(mixed $v): int
     {
         if (!is_int($v)) {
+            self::falla();
+        }
+
+        return $v;
+    }
+
+    /** UUID en minúsculas (cualquier versión). */
+    public static function uuid(mixed $v): string
+    {
+        if (!is_string($v) || preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/', $v) !== 1) {
+            self::falla();
+        }
+
+        return $v;
+    }
+
+    /** Firma en Base64 canónico (una firma ECDSA P-256 en DER mide unos 96 caracteres). */
+    public static function firmaBase64(mixed $v): string
+    {
+        if (!is_string($v) || $v === '' || strlen($v) > 200) {
+            self::falla();
+        }
+        $bin = base64_decode($v, true);
+        if ($bin === false || base64_encode($bin) !== $v) {
+            self::falla();
+        }
+
+        return $v;
+    }
+
+    /**
+     * Denominaciones solicitadas: objeto {"500":2,"300":1}. Cada llave debe ser una denominación
+     * permitida (entero), cada cantidad un entero de 1 a 50, y el total de tickets no pasar de 50.
+     * No se aceptan cantidades en cero: quien firma simplemente omite esa denominación.
+     * @return array<int,int>
+     */
+    public static function denominaciones(mixed $v): array
+    {
+        if (!is_array($v) || $v === []) {
+            self::falla();
+        }
+        $totalTickets = 0;
+        foreach ($v as $denominacion => $cantidad) {
+            if (!is_int($denominacion) || !in_array($denominacion, Ticket::DENOMINACIONES, true)) {
+                self::falla();
+            }
+            if (!is_int($cantidad) || $cantidad < 1 || $cantidad > self::MAX_TICKETS_POR_SOLICITUD) {
+                self::falla();
+            }
+            $totalTickets += $cantidad;
+        }
+        if ($totalTickets > self::MAX_TICKETS_POR_SOLICITUD) {
             self::falla();
         }
 

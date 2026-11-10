@@ -3,6 +3,7 @@
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CuentaController;
 use App\Http\Controllers\Dev\CriptoPruebaController;
+use App\Http\Controllers\TicketController;
 use App\Services\CryptoService;
 use Illuminate\Support\Facades\Route;
 
@@ -19,6 +20,7 @@ Route::get('/ping', function (CryptoService $cripto) {
 Route::post('/registro', [AuthController::class, 'registro']);
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/cuenta/consulta', [CuentaController::class, 'consulta']);
+Route::post('/tickets/solicitar', [TicketController::class, 'solicitar']);
 
 // Endpoints de prueba de criptografía: SOLO en desarrollo. Quitar antes de la entrega final.
 if (app()->environment('local')) {
