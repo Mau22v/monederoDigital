@@ -1,0 +1,51 @@
+erDiagram
+    CUENTAS ||--o{ TICKETS : "posee"
+    CUENTAS ||--o{ CANJES : "origina"
+    CANJES |o--o{ TICKETS : "gasta"
+
+    CUENTAS {
+        uuid id PK "id_cuenta"
+        string correo UK
+        string password_hash "Argon2id"
+        int saldo "pesos"
+        text pub_u "Base64 X.509"
+        int cert_expiracion
+        text cert_firma_b
+        int intentos_fallidos
+        int bloqueada_hasta "nulo si libre"
+    }
+    TICKETS {
+        uuid id PK
+        uuid id_cuenta FK
+        int denominacion "500 300 100 50 20"
+        int emision
+        int expiracion
+        text firma_b
+        enum estado "ACTIVO o GASTADO"
+        uuid id_pedido FK "nulo si activo"
+        int gastado_en
+    }
+    CANJES {
+        uuid id_pedido PK
+        uuid id_cuenta FK
+        int monto
+        int momento "recibo"
+        text firma_b "recibo"
+    }
+    NONCES {
+        string nonce PK "32 hex"
+        string origen
+        string endpoint
+        int registrado_en
+        int expira_en
+    }
+    BITACORA {
+        int id PK
+        int momento
+        string endpoint
+        enum resultado "ACEPTADO o RECHAZADO"
+        string codigo "error del contrato"
+        string id_cuenta "sin FK"
+        string detalle
+        string ip
+    }
