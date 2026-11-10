@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Versión** | 1.1 |
+| **Versión** | 1.2 |
 | **Fecha** | 2026-11-07 |
 | **Responsables** | Mau (servidores Banco y Tienda, Laravel) y [compañero] (app Android, Kotlin) |
 | **Ubicación** | `docs/contrato-integracion.md` |
@@ -214,6 +214,18 @@ Orden de verificación en todos los endpoints con sobre (sección 13).
 - Respuesta 200 (en sobre): `{ "token": "<JWT>", "tipo": "Bearer", "expira_en": 900, "id_cuenta": "uuid", "saldo": 10000, "cert_u": { ... } }`
 - Errores: `CREDENCIALES_INVALIDAS` (mensaje genérico, no indica si falló el correo o la contraseña), `DEMASIADOS_INTENTOS`.
 
+### Reglas de validación del banco (implementadas en la Fase 5)
+
+- **Correo:** texto, hasta 254 caracteres, formato válido. El banco lo guarda y lo compara **en minúsculas** (`Ana@x.com` y `ana@x.com` son la misma cuenta).
+- **Contraseña:** de 8 a 128 caracteres al registrarse; de 1 a 128 al iniciar sesión.
+- **`pub_u`:** Base64 estándar con relleno, en su forma canónica (decodificar y volver a codificar debe dar el mismo texto) y debe ser una llave **EC P-256**. Si no, `FORMATO_INVALIDO`.
+- **`nonce`:** exactamente 32 caracteres hexadecimales en minúscula. **`timestamp`:** entero JSON (no texto ni decimal).
+- **Tolerancia de tiempo:** se acepta una diferencia de hasta **120 s inclusive** (120 es válido, 121 se rechaza).
+- **Bloqueo de login:** los fallos 1 a 5 responden `CREDENCIALES_INVALIDAS`; a partir del sexto intento (aunque la contraseña sea correcta) responde `DEMASIADOS_INTENTOS` hasta pasados 300 s desde el quinto fallo. Un login correcto reinicia el contador.
+- **Token vencido:** el JWT deja de valer exactamente en `exp` (iat + 900 s).
+- **Cert_U:** se firma al registrarse (`cert|v1|id_cuenta|pub_u|expiracion`, vigencia 365 días); el login devuelve el mismo Cert_U guardado.
+- Una petición sin sobre válido (por ejemplo, JSON sin `k`, `iv` y `ct`) responde `MENSAJE_CORRUPTO`.
+
 ### POST `/api/cuenta/consulta`
 - Autenticación: `Authorization: Bearer <JWT>`. Sobre: **sí**.
 - Petición: `{ "nonce": "...", "timestamp": 1762500000 }`
@@ -396,6 +408,7 @@ Cada rechazo se registra en la bitácora del servidor con su motivo (se muestra 
 |---|---|---|
 | 1.0 | 2026-11-07 | Borrador inicial. |
 | 1.1 | 2026-11-08 | Sección 16 resuelta; se agrega la sección 18 (endpoints de prueba de criptografía). |
+| 1.2 | 2026-11-09 | Reglas de validación del banco precisadas en la sección 9 (correo en minúsculas, contraseña 8-128, pub_u canónica P-256, límites de tiempo y bloqueo). Sin cambios en endpoints ni formatos. |
 
 ## 18. Endpoints de prueba de criptografía (solo desarrollo)
 

@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Services\CryptoService;
+use App\Services\JwtService;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -18,6 +19,12 @@ class AppServiceProvider extends ServiceProvider
                 $leer(config('seguridad.rsa_priv')),
             );
         });
+
+        // Tokens de sesión (JWT). Exige JWT_SECRET de al menos 32 caracteres en el .env.
+        $this->app->singleton(JwtService::class, fn () => new JwtService(
+            (string) config('seguridad.jwt_secret'),
+            (int) config('seguridad.jwt_ttl'),
+        ));
     }
 
     public function boot(): void

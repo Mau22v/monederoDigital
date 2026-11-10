@@ -1,0 +1,20 @@
+flowchart TD
+    A([Petición con sobre cifrado]) --> B{1. ¿Se puede descifrar el sobre?<br/>RSA-OAEP + AES-GCM}
+    B -- No --> E1[/MENSAJE_CORRUPTO 400 · E4/]
+    B -- Sí --> C{2. ¿Endpoint con sesión?<br/>JWT válido y vigente}
+    C -- No válido --> E2[/TOKEN_INVALIDO 401/]
+    C -- Sí o no aplica --> D{3. ¿Formato correcto?<br/>campos, nonce, timestamp entero}
+    D -- No --> E3[/FORMATO_INVALIDO 400/]
+    D -- Sí --> F{4. ¿Timestamp dentro de ±120 s?}
+    F -- No --> E4[/TIMESTAMP_FUERA_DE_RANGO 400/]
+    F -- Sí --> G{5. ¿El nonce ya existe?}
+    G -- Sí --> E5[/NONCE_REPETIDO 409/]
+    G -- No --> H[6 a 8. Lógica del endpoint<br/>firmas, guardar nonce, reglas de negocio]
+    H -- ApiError --> E6[/Código del contrato/]
+    H -- Éxito --> I[Respuesta cifrada con la misma K<br/>y un IV nuevo]
+    E1 & E2 & E3 & E4 & E5 & E6 --> J[Respuesta de error en claro<br/>+ fila RECHAZADO en bitácora]
+    I --> K[Fila ACEPTADO en bitácora]
+    classDef err fill:#fde8e8,stroke:#c0392b,color:#7b241c;
+    classDef ok fill:#e8f6ee,stroke:#1e8449,color:#145a32;
+    class E1,E2,E3,E4,E5,E6,J err;
+    class I,K ok;

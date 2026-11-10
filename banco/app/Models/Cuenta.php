@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
@@ -8,16 +9,18 @@ use InvalidArgumentException;
 
 class Cuenta extends Model
 {
-    public const MAX_INTENTOS = 5; //CONTRATO DE SECCION 14
-    public const BLOQUEO_SEG = 300; // 5 MINUTOS
+    public const MAX_INTENTOS = 5;     // contrato, sección 14
+    public const BLOQUEO_SEG  = 300;   // 5 minutos
+    public const SALDO_INICIAL = 10000;      // contrato, sección 14
+    public const CERT_VIGENCIA_SEG = 31536000;   // Cert_U: 365 días
 
     protected $table = 'cuentas';
     public $incrementing = false;
     protected $keyType = 'string';
-    protected $guarded = []; // modelo interno: jamás se llena directo desde una petición
+    protected $guarded = [];           // modelo interno: jamás se llena directo desde una petición
     protected $hidden = ['password_hash'];
     protected $attributes = ['intentos_fallidos' => 0];
-    protected $casts = ['saldo' => 'integer', 'intentos_fallidos' => 'integer'];
+    protected $casts = ['saldo' => 'integer', 'intentos_fallidos' => 'integer', 'cert_expiracion' => 'integer', 'bloqueada_hasta' => 'integer'];
 
     protected static function booted(): void
     {
@@ -39,12 +42,13 @@ class Cuenta extends Model
         return $this->bloqueada_hasta !== null && $this->bloqueada_hasta > $ahora;
     }
 
+    /** Cuenta un intento fallido; al llegar a 5 bloquea 5 minutos y reinicia el contador. */
     public function registrarFalloLogin(int $ahora): void
     {
         $this->intentos_fallidos = $this->intentos_fallidos + 1;
         if ($this->intentos_fallidos >= self::MAX_INTENTOS) {
             $this->bloqueada_hasta = $ahora + self::BLOQUEO_SEG;
-            $this->intentos_fallidos = 0; // resetear intentos fallidos al bloquear
+            $this->intentos_fallidos = 0;
         }
         $this->save();
     }
@@ -74,5 +78,4 @@ class Cuenta extends Model
 
         return $filas === 1;
     }
-
 }
