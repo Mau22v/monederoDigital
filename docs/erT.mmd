@@ -1,0 +1,45 @@
+erDiagram
+    PEDIDOS ||--|{ PEDIDO_ITEMS : "contiene"
+    PRODUCTOS ||..o{ PEDIDO_ITEMS : "se copia (sin FK)"
+
+    PRODUCTOS {
+        int id PK "lo fija el catálogo"
+        string nombre "sin | ; : ,"
+        int precio "pago exacto"
+        bool activo "retirado = false"
+    }
+    PEDIDOS {
+        uuid id PK "id_pedido"
+        string id_cuenta "del Cert_U, sin FK"
+        int monto "pesos"
+        string nonce_t "32 hex"
+        int creado_en
+        int expiracion "creado + 600"
+        enum estado "CREADO PAGADO RECHAZADO"
+        text firma_t "firma de la tienda"
+    }
+    PEDIDO_ITEMS {
+        int id PK
+        uuid id_pedido FK
+        int id_producto "copia, sin FK"
+        string nombre "copia"
+        int precio_unitario "copia"
+        int cantidad
+    }
+    NONCES {
+        string nonce PK "32 hex"
+        string origen "id_cuenta"
+        string endpoint
+        int registrado_en
+        int expira_en
+    }
+    BITACORA {
+        int id PK
+        int momento
+        string endpoint
+        enum resultado "ACEPTADO o RECHAZADO"
+        string codigo
+        string id_cuenta "sin FK"
+        string detalle
+        string ip
+    }

@@ -1,0 +1,21 @@
+sequenceDiagram
+    participant App as App (cliente)
+    participant T as Servidor Tienda
+    participant DB as Base de datos de la Tienda
+    Note over App: Arma la petición con su Cert_U (emitido por el banco) y la firma con su llave privada<br/>firma_u = ECDSA( crear_pedido|v1|id_cuenta|1:1,3:2|nonce|timestamp )
+    App->>T: POST /api/pedidos<br/>sobre {k, iv, ct} (RSA-OAEP de la tienda + AES-GCM)
+    T->>T: 1. Descifrar el sobre (si falla: MENSAJE_CORRUPTO)
+    T->>T: 3. Formato: Cert_U (4 campos), renglones 1 a 10, cantidades 1 a 10, nonce, firma
+    T->>T: 4. Timestamp dentro de ±120 s
+    T->>DB: 5. ¿El nonce ya existe? (NONCE_REPETIDO)
+    T->>T: 6a. Cert_U firmado por el BANCO (Pub_B) y vigente (CERTIFICADO_INVALIDO)
+    T->>T: 6b. firma_u verifica con la Pub_U del certificado (FIRMA_INVALIDA)
+    T->>DB: 7. Guardar el nonce (solo ahora que las firmas verificaron)
+    T->>DB: 8. Leer productos activos y calcular el monto con los precios DEL SERVIDOR
+    rect rgb(232, 246, 238)
+    Note over T,DB: UNA transacción: todo o nada
+    T->>T: Firmar el pedido: pedido|v1|id_pedido|id_cuenta|monto|nonce_t|expiracion
+    T->>DB: Guardar pedido y renglones (copia de nombre y precio)
+    end
+    T-->>App: 201 · sobre de respuesta {iv, ct} con la misma K<br/>{pedido: {id_pedido, id_cuenta, monto, nonce_t, expiracion, firma_t}}
+    Note over App: Verifica firma_t con tienda_ec_pub.pem y que el monto sea el esperado

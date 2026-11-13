@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Versión** | 1.2 |
+| **Versión** | 1.4 |
 | **Fecha** | 2026-11-07 |
 | **Responsables** | Mau (servidores Banco y Tienda, Laravel) y [compañero] (app Android, Kotlin) |
 | **Ubicación** | `docs/contrato-integracion.md` |
@@ -246,6 +246,16 @@ Orden de verificación en todos los endpoints con sobre (sección 13).
 - Errores: `TOKEN_INVALIDO`, `FIRMA_INVALIDA`, `NONCE_REPETIDO`, `TIMESTAMP_FUERA_DE_RANGO`, `SALDO_INSUFICIENTE`, `FORMATO_INVALIDO`.
 - La app verifica `firma_b` de cada ticket y del recibo con `banco_ec_pub.pem` antes de guardarlos.
 
+Reglas precisadas (Fase 6):
+- `id_cuenta` debe ser la cuenta de la sesión (JWT); si no, `TOKEN_INVALIDO`. La firma `firma_u` se verifica con la `Pub_U` registrada de esa cuenta.
+- `denominaciones` es un **objeto** cuyas llaves son denominaciones permitidas (500, 300, 100, 50, 20) y cuyos valores son **enteros de 1 a 50**. No se aceptan cantidades en cero (se omite la denominación), ni textos, ni decimales. El total de tickets por solicitud es **máximo 50**. Incumplir cualquiera: `FORMATO_INVALIDO`.
+- `firma_u`: Base64 canónico, hasta 200 caracteres. Se firma la cadena `solicitud|v1|id_cuenta|denominaciones|nonce|timestamp` (denominaciones de mayor a menor, `500:2,300:1`).
+- Si el `Cert_U` de la cuenta está vencido: `CERTIFICADO_INVALIDO` (403).
+- El nonce se guarda **solo si la firma verifica**. Si luego falta saldo, el nonce ya quedó consumido: la app debe usar uno nuevo para reintentar.
+- El descuento de saldo y la creación de tickets son **atómicos**: si algo falla, el saldo no cambia.
+- Los tickets nacen `ACTIVO`, con `emision` = hora del servidor y `expiracion` = emisión + 30 días (2,592,000 s). `recibo.timestamp` = `emision`. `recibo.ids` va en orden ascendente (comparación de texto) y `saldo` es el saldo **después** del descuento.
+- Errores adicionales: `CERTIFICADO_INVALIDO`.
+
 ### POST `/api/canje` (lo invoca la **tienda**)
 - Autenticación: firma de la tienda. Sobre: **sí** (RSA del banco).
 - Petición:
@@ -288,6 +298,15 @@ Orden de verificación en todos los endpoints con sobre (sección 13).
               "nonce_t": "...", "expiracion": 1762500600, "firma_t": "..." } }
 ```
 - Errores: `CERTIFICADO_INVALIDO`, `FIRMA_INVALIDA`, `NONCE_REPETIDO`, `FORMATO_INVALIDO`.
+
+Reglas precisadas (Fase 7):
+- **Catálogo:** `timestamp` = hora del servidor al responder; solo aparecen productos activos, ordenados por `id`. Cada respuesta se firma de nuevo. Si no hay productos, `productos` es `[]` y también va firmado. La app muestra el catálogo solo si `firma_t` verifica.
+- **`cert_u`** debe traer **exactamente** `id_cuenta`, `pub_u`, `expiracion` y `firma_b` (un campo extra o faltante es `FORMATO_INVALIDO`). Se verifica primero la firma del banco y la vigencia (`CERTIFICADO_INVALIDO`; vence en el instante `expiracion`) y después `firma_u` con la `pub_u` **de ese certificado** (`FIRMA_INVALIDA`).
+- **`items`:** lista de 1 a 10 objetos `{"id": entero >= 1, "cantidad": entero de 1 a 10}`, sin `id` repetidos y sin campos extra. La app **no envía precios**: el monto lo calcula la tienda con los precios de su base de datos.
+- Un producto inexistente o retirado, o un monto mayor a **$10,000**, responde `FORMATO_INVALIDO` (400). El nonce ya quedó consumido (la firma era válida): la app usa uno nuevo para reintentar.
+- `monto` = suma de precio x cantidad. `expiracion` = hora del servidor + 600 s. `nonce_t` lo genera la tienda (32 hex).
+- **`/estado`:** un pedido de otra cuenta responde igual que uno inexistente (`PEDIDO_NO_ENCONTRADO`, 404). `estado` puede ser `CREADO`, `PAGADO`, `RECHAZADO` o `EXPIRADO` (se calcula: `ahora >= expiracion` y sigue `CREADO`). `comprobante` es `null` mientras no exista pago (el comprobante firmado se agrega en la Fase 8).
+- Precios de la tienda: múltiplos de 10, desde 20, distintos de 30, hasta 10,000.
 
 ### POST `/api/pedidos/{id_pedido}/pago`
 - Autenticación: `Cert_U` + `firma_u`. Sobre: **sí**.
@@ -409,6 +428,8 @@ Cada rechazo se registra en la bitácora del servidor con su motivo (se muestra 
 | 1.0 | 2026-11-07 | Borrador inicial. |
 | 1.1 | 2026-11-08 | Sección 16 resuelta; se agrega la sección 18 (endpoints de prueba de criptografía). |
 | 1.2 | 2026-11-09 | Reglas de validación del banco precisadas en la sección 9 (correo en minúsculas, contraseña 8-128, pub_u canónica P-256, límites de tiempo y bloqueo). Sin cambios en endpoints ni formatos. |
+| 1.3 | 2026-11-10 | Reglas precisadas de `/api/tickets/solicitar` (límites de cantidades, máximo 50 tickets, atomicidad, vigencia, `CERTIFICADO_INVALIDO`). Sin cambios de formato. |
+| 1.4 | 2026-11-11 | Reglas precisadas de `/api/catalogo`, `/api/pedidos` y `/estado` (Cert_U exacto, items 1-10, monto máximo $10,000, precios pagables, pedido ajeno = inexistente). Sin cambios de formato. |
 
 ## 18. Endpoints de prueba de criptografía (solo desarrollo)
 

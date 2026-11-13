@@ -3,7 +3,10 @@
 namespace App\Providers;
 
 use App\Services\CryptoService;
+use App\Services\CertificadoUsuario;
 use Illuminate\Support\ServiceProvider;
+use RuntimeExeption;
+
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -17,6 +20,16 @@ class AppServiceProvider extends ServiceProvider
                 $leer(config('seguridad.ec_priv')),
                 $leer(config('seguridad.rsa_priv')),
             );
+        });
+
+        //Para verificar Cert_U la tienda necesita la llave publica EC del banco(Carpeta claves ppublicas)
+        $this->app->singleton(CertificadoUsuario::class, function ($app){
+            $ruta = config('seguridad.banco_ec_pub');
+            if(!is_file($ruta)){
+                throw new RuntimeExeption('Falta la llave del banco: ' .$ruta);
+            }
+
+            return new CertificadoUsuario($app->make(CryptoService::class), file_get_contents($ruta));
         });
     }
 

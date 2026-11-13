@@ -1,0 +1,22 @@
+sequenceDiagram
+    participant App as App (cliente)
+    participant B as Servidor Banco
+    participant DB as Base de datos del Banco
+    Note over App: Arma la solicitud y la firma con su llave privada (Keystore)<br/>firma_u = ECDSA( solicitud|v1|id_cuenta|500:2,300:1|nonce|timestamp )
+    App->>B: POST /api/tickets/solicitar · Bearer JWT<br/>sobre {k, iv, ct} (RSA-OAEP + AES-GCM)
+    B->>B: 1. Descifrar el sobre (si falla: MENSAJE_CORRUPTO)
+    B->>B: 2. Validar JWT (TOKEN_INVALIDO) y que id_cuenta sea la de la sesión
+    B->>B: 3. Formato: UUID, denominaciones permitidas, cantidades 1 a 50, máx. 50 tickets
+    B->>B: 4. Timestamp dentro de ±120 s
+    B->>DB: 5. ¿El nonce ya existe? (NONCE_REPETIDO)
+    B->>B: 6. Cert_U vigente y verificar firma_u con la Pub_U de la cuenta (FIRMA_INVALIDA)
+    B->>DB: 7. Guardar el nonce (solo ahora que la firma verificó)
+    rect rgb(232, 246, 238)
+    Note over B,DB: 8. UNA transacción: todo o nada
+    B->>DB: Descontar saldo si saldo ≥ total (SALDO_INSUFICIENTE)
+    B->>B: Por cada ticket: UUID v4 y firma del banco<br/>ticket|v1|id|denominación|id_cuenta|emisión|expiración
+    B->>DB: Guardar los tickets como ACTIVOS
+    end
+    B->>B: Firmar el recibo: recibo_adq|v1|id_cuenta|total|ids|timestamp
+    B-->>App: 201 · sobre de respuesta {iv, ct} con la misma K<br/>{tickets, saldo, recibo}
+    Note over App: Verifica firma_b de cada ticket y del recibo<br/>con banco_ec_pub.pem antes de guardarlos cifrados
