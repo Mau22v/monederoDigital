@@ -3,8 +3,10 @@
 namespace App\Providers;
 
 use App\Services\CryptoService;
+use App\Services\FirmaTienda;
 use App\Services\JwtService;
 use Illuminate\Support\ServiceProvider;
+use RuntimeException;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -25,6 +27,15 @@ class AppServiceProvider extends ServiceProvider
             (string) config('seguridad.jwt_secret'),
             (int) config('seguridad.jwt_ttl'),
         ));
+        // Para verificar las firmas de la tienda (/api/canje) el banco necesita su llave pública EC (carpeta claves-publicas/).
+        $this->app->singleton(FirmaTienda::class, function ($app) {
+            $ruta = config('seguridad.tienda_ec_pub');
+            if (!is_file($ruta)) {
+                throw new RuntimeException('Falta la llave pública de la tienda: ' . $ruta);
+            }
+
+            return new FirmaTienda($app->make(CryptoService::class), file_get_contents($ruta));
+        });
     }
 
     public function boot(): void

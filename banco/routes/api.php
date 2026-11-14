@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\CanjeController;
 use App\Http\Controllers\CuentaController;
 use App\Http\Controllers\Dev\CriptoPruebaController;
 use App\Http\Controllers\TicketController;
@@ -21,6 +22,9 @@ Route::post('/registro', [AuthController::class, 'registro']);
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/cuenta/consulta', [CuentaController::class, 'consulta']);
 Route::post('/tickets/solicitar', [TicketController::class, 'solicitar']);
+// Los invoca la tienda (firma de la tienda, sin JWT)
+Route::post('/canje', [CanjeController::class, 'canjear']);
+Route::post('/canjes/consulta', [CanjeController::class, 'consultar']);
 
 // Endpoints de prueba de criptografía: SOLO en desarrollo. Quitar antes de la entrega final.
 if (app()->environment('local')) {

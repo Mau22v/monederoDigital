@@ -25,3 +25,7 @@ SQLite en desarrollo (`banco/database/database.sqlite`). Diagrama: `diagrama-er-
 ## Pruebas (`tests/Feature/BaseDatosBancoTest.php`, 24)
 
 Ejecutar: `php artisan test --filter=BaseDatosBancoTest`. Resultado esperado: 24 pasadas, 0 fallos.
+
+## Canje de tickets (Fase 8)
+
+Sin tablas nuevas: `canjes` y `tickets` ya existían. El canje (`CanjeadorTickets`) inserta la fila de `canjes` y cambia a GASTADO todos los tickets (`id_pedido`, `gastado_en`) **en una sola transacción**; el cambio es un UPDATE condicionado a ACTIVO, vigente y de la cuenta (`Ticket::gastar`). Si un ticket ya no cumple, se deshace también el canje. PK de `canjes` = `id_pedido`: dos canjes simultáneos del mismo pedido no pueden coexistir (el segundo recibe el recibo del primero). `php artisan test --filter=CanjeTest` (38).

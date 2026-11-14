@@ -18,6 +18,7 @@ Route::get('/ping', function (CryptoService $cripto) {
 // Endpoints de la tienda (contrato, sección 10)
 Route::get('/catalogo', [CatalogoController::class, 'index']);
 Route::post('/pedidos', [PedidoController::class, 'crear']);
+Route::post('/pedidos/{idPedido}/pago', [PedidoController::class, 'pagar']);
 Route::post('/pedidos/{idPedido}/estado', [PedidoController::class, 'estado']);
 
 // Endpoints de prueba de criptografía: SOLO en desarrollo. Quitar antes de la entrega final.

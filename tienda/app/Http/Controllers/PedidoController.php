@@ -6,6 +6,7 @@ use App\Models\Pedido;
 use App\Services\Canonico;
 use App\Services\CertificadoUsuario;
 use App\Services\CreadorPedidos;
+use App\Services\ProcesadorPagos;
 use App\Services\CryptoService;
 use App\Services\ProcesadorSobre;
 use App\Support\ApiError;
@@ -14,7 +15,7 @@ use App\Support\Validar;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
-/** POST /api/pedidos y POST /api/pedidos/{idPedido}/estado (contrato, sección 10). */
+/** POST /api/pedidos, POST /api/pedidos/{idPedido}/pago y POST /api/pedidos/{idPedido}/estado (contrato, sección 10). */
 class PedidoController extends Controller
 {
     public function __construct(
@@ -22,6 +23,7 @@ class PedidoController extends Controller
         private readonly CryptoService $cripto,
         private readonly CertificadoUsuario $usuarios,
         private readonly CreadorPedidos $creador,
+        private readonly ProcesadorPagos $pagos,
     ) {
     }
 
@@ -60,6 +62,54 @@ class PedidoController extends Controller
         });
     }
 
+    /**
+     * Pago con tickets. El nonce y el timestamp son los de la orden que firmó el cliente (por eso 'anidado' => 'orden').
+     * Orden de verificación: sobre -> formato -> timestamp -> nonce -> Cert_U -> firma_u -> tickets -> guardar nonce -> negocio y canje.
+     */
+    public function pagar(Request $request, string $idPedido): JsonResponse
+    {
+        $opciones = [
+            'nonce' => true,
+            'anidado' => 'orden',
+            'validar' => function (array $d) use ($idPedido): void {
+                Validar::uuid($idPedido);
+                Validar::certU($d['cert_u'] ?? null, $this->cripto);
+                Validar::ordenPago($d['orden'] ?? null);
+                if ($d['orden']['id_pedido'] !== $idPedido) {
+                    throw new ApiError('FORMATO_INVALIDO');   // la orden firmada debe ser de ESTE pedido
+                }
+                Validar::firmaBase64($d['firma_u'] ?? null);
+            },
+        ];
+
+        return $this->sobre->ejecutar($request, '/api/pedidos/{id}/pago', $opciones, function (Contexto $c) use ($idPedido): array {
+            $cert = $c->datos['cert_u'];
+            $orden = $c->datos['orden'];
+            $tickets = $orden['tickets'];
+            $ids = array_column($tickets, 'id');
+
+            // Paso 6: Cert_U, firma del cliente sobre la orden y firma del banco de CADA ticket (E1).
+            $this->usuarios->verificarCert($cert, $c->ahora);
+            $c->idCuenta = $cert['id_cuenta'];
+            $this->usuarios->verificarFirmaCliente($cert, Canonico::orden($idPedido, $orden['monto'], $ids, $orden['nonce'], $orden['timestamp']), $c->datos['firma_u']);
+            foreach ($tickets as $ticket) {
+                $this->usuarios->verificarTicket($ticket, $cert['id_cuenta']);
+            }
+            // Paso 7: solo ahora, con todo verificado, se guarda el nonce.
+            $c->registrarNonce($cert['id_cuenta']);
+
+            // Paso 8: el pedido debe ser de esta cuenta; reglas de negocio y canje en el banco.
+            $pedido = Pedido::delCliente($idPedido, $cert['id_cuenta']);
+            if ($pedido === null) {
+                throw new ApiError('PEDIDO_NO_ENCONTRADO');
+            }
+            [$comprobante, $recibo] = $this->pagos->pagar($pedido, $orden, $c->datos['firma_u'], $tickets, $c->ahora);
+            $c->detalle = 'Pedido ' . substr($pedido->id, 0, 8) . ' pagado por $' . $comprobante['monto'];
+
+            return [200, ['comprobante' => $comprobante, 'recibo_canje' => $recibo]];
+        });
+    }
+
     public function estado(Request $request, string $idPedido): JsonResponse
     {
         $opciones = [
@@ -87,8 +137,11 @@ class PedidoController extends Controller
             }
             $c->detalle = 'Estado del pedido ' . substr($pedido->id, 0, 8);
 
-            // El comprobante firmado se agrega en la Fase 8, cuando existan los pagos (hoy ningún pedido está PAGADO).
-            return [200, ['id_pedido' => $pedido->id, 'estado' => $pedido->estadoEfectivo($c->ahora), 'comprobante' => null]];
+            // Si un pago quedó a medias (se cortó la red tras llamar al banco), aquí se concilia con el banco.
+            $this->pagos->conciliar($pedido, $c->ahora);
+            $comprobante = $pedido->estado === Pedido::PAGADO ? $this->pagos->respuesta($pedido)[0] : null;
+
+            return [200, ['id_pedido' => $pedido->id, 'estado' => $pedido->estadoEfectivo($c->ahora), 'comprobante' => $comprobante]];
         });
     }
 }

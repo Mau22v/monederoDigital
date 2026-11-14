@@ -9,7 +9,7 @@ use App\Support\ApiError;
 /**
  * Autenticación de un cliente ante la tienda (contrato, sección 10): Cert_U + firma_u.
  * La tienda NO guarda cuentas de usuario: confía en el Cert_U porque lo firmó el banco, y para verificarlo
- * le basta la llave pública del banco (banco_ec_pub.pem).
+ * le basta la llave pública del banco (banco_ec_pub.pem). Con esa misma llave verifica los tickets y los recibos de canje.
  */
 class CertificadoUsuario
 {
@@ -44,5 +44,30 @@ class CertificadoUsuario
         if (!$this->cripto->verificar($cadena, $firmaU, $pubU)) {
             throw new ApiError('FIRMA_INVALIDA');
         }
+    }
+
+    /**
+     * Paso 6c (E1): el ticket debe traer la firma del banco sobre SUS datos y ser de la cuenta que paga.
+     * Cualquier cambio (denominación, fechas, dueña, id) hace que la firma no verifique.
+     * No revisa la vigencia: eso es regla de negocio (paso 8).
+     * @throws ApiError TICKET_INVALIDO
+     */
+    public function verificarTicket(array $ticket, string $idCuenta): void
+    {
+        $cadena = Canonico::ticket($ticket['id'], $ticket['denominacion'], $ticket['id_cuenta'], $ticket['emision'], $ticket['expiracion']);
+        if (!$this->cripto->verificar($cadena, $ticket['firma_b'], $this->bancoEcPubPem)) {
+            throw new ApiError('TICKET_INVALIDO');
+        }
+        if ($ticket['id_cuenta'] !== $idCuenta) {
+            throw new ApiError('TICKET_INVALIDO');   // ticket auténtico pero de otra persona
+        }
+    }
+
+    /** ¿El recibo de canje trae la firma del banco sobre sus datos? */
+    public function reciboEsAutentico(array $recibo): bool
+    {
+        $cadena = Canonico::reciboCanje($recibo['id_pedido'], $recibo['monto'], $recibo['ids'], $recibo['timestamp']);
+
+        return $this->cripto->verificar($cadena, $recibo['firma_b'], $this->bancoEcPubPem);
     }
 }

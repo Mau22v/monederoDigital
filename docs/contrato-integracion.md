@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Versión** | 1.4 |
+| **Versión** | 1.5 |
 | **Fecha** | 2026-11-07 |
 | **Responsables** | Mau (servidores Banco y Tienda, Laravel) y [compañero] (app Android, Kotlin) |
 | **Ubicación** | `docs/contrato-integracion.md` |
@@ -267,11 +267,21 @@ Reglas precisadas (Fase 6):
   `orden` son los datos de la orden de pago firmada por el cliente; el banco reconstruye la cadena `orden|v1|...` y verifica `firma_u` con la `Pub_U` del dueño de los tickets.
 - Respuesta 200 (en sobre): `{ "recibo": { "id_pedido": "uuid", "monto": 370, "ids": [...], "timestamp": 1762500002, "firma_b": "..." } }`
 - **Idempotente:** si el mismo `id_pedido` ya se canjeó con los mismos tickets, devuelve el mismo recibo con 200.
-- Errores: `FIRMA_INVALIDA`, `TICKET_GASTADO`, `TICKET_EXPIRADO`, `TICKET_INVALIDO`, `MONTO_INCORRECTO`, `PEDIDO_DUPLICADO` (409, mismo `id_pedido` con tickets distintos), `NONCE_REPETIDO`.
+- Errores: `FIRMA_INVALIDA`, `CERTIFICADO_INVALIDO`, `TICKET_GASTADO`, `TICKET_EXPIRADO`, `TICKET_INVALIDO`, `MONTO_INCORRECTO`, `PEDIDO_DUPLICADO` (409, mismo `id_pedido` con tickets distintos), `NONCE_REPETIDO`.
+
+**Reglas precisadas (Fase 8):**
+- Formato: `monto` entero 1 a 25,000; `ids` lista de 1 a 50 UUID **distintos**; `orden` con exactamente `nonce`, `timestamp` y `firma_u`.
+- Verificación en este orden: sobre → formato → timestamp (±120 s, el de la **tienda**) → nonce → `firma_t` → dueña de los tickets → `Cert_U` vigente → `firma_u` de la orden → guardar nonce → reglas de negocio.
+- El `timestamp` de la **orden** del cliente NO se compara con el reloj del banco: solo forma parte de lo firmado (la ventana la aplica la tienda).
+- Todos los tickets deben ser de la **misma cuenta** y haber sido emitidos por este banco; si falta alguno o hay dos dueños: `TICKET_INVALIDO` (403).
+- Reglas de negocio, en orden: pedido ya canjeado (mismo pedido y tickets = mismo recibo; otros tickets u otro monto = `PEDIDO_DUPLICADO`) → `TICKET_GASTADO` → `TICKET_EXPIRADO` → `MONTO_INCORRECTO` (la suma debe ser **exacta**, no hay cambio).
+- El canje y el cambio de estado de TODOS los tickets son atómicos (todos o ninguno). Canjear **no mueve el saldo**: el dinero salió al comprar los tickets.
+- No requiere JWT; el recibo se guarda y se devuelve idéntico en repeticiones.
 
 ### POST `/api/canjes/consulta` (lo invoca la **tienda**)
 - Sobre: **sí**. Petición: `{ "id_pedido": "uuid", "nonce": "...", "timestamp": 1762500000, "firma_t": "..." }`
 - Respuesta 200 (en sobre): `{ "recibo": { ... } }`. Si no existe: `CANJE_NO_ENCONTRADO` (404).
+- Verifica `firma_t` y guarda el nonce; no requiere JWT. Sirve a la tienda para **conciliar** un pago cuya respuesta se perdió.
 
 ## 10. Endpoints de la Tienda (puerto 8002)
 
@@ -324,15 +334,25 @@ Reglas precisadas (Fase 7):
                    "estado": "PAGADO", "timestamp": 1762500103, "firma_t": "..." },
   "recibo_canje": { ...recibo del banco... } }
 ```
-- Errores: `CERTIFICADO_INVALIDO`, `FIRMA_INVALIDA`, `TICKET_INVALIDO`, `TICKET_GASTADO`, `TICKET_EXPIRADO`, `MONTO_INCORRECTO`, `PEDIDO_EXPIRADO`, `PEDIDO_NO_ENCONTRADO`, `NONCE_REPETIDO`.
+- Errores: `CERTIFICADO_INVALIDO`, `FIRMA_INVALIDA`, `TICKET_INVALIDO`, `TICKET_GASTADO`, `TICKET_EXPIRADO`, `MONTO_INCORRECTO`, `PEDIDO_DUPLICADO`, `PEDIDO_EXPIRADO`, `PEDIDO_NO_ENCONTRADO`, `NONCE_REPETIDO`.
+
+**Reglas precisadas (Fase 8):**
+- El `nonce` y el `timestamp` del mensaje son los de la **orden** (`orden.nonce`, `orden.timestamp`); la firma `firma_u` cubre `orden|v1|{id_pedido}|{monto}|{ids ordenados}|{nonce}|{timestamp}`. `orden` lleva exactamente `id_pedido`, `monto` (1 a 10,000), `tickets` (1 a 50, ids distintos), `nonce`, `timestamp`; cada ticket lleva exactamente sus 6 campos.
+- Orden en la tienda: sobre → formato (incluye que `orden.id_pedido` = ruta) → timestamp → nonce → `Cert_U` → `firma_u` → firma del banco de **cada ticket** y que sean de la cuenta que paga (`TICKET_INVALIDO`, escenario E1) → guardar nonce → pedido existente y propio → reglas de negocio → canje en el banco.
+- Reglas de negocio, en orden: conciliar un intento pendiente → si ya está `PAGADO`: mismos tickets y monto = **misma respuesta** (idempotente), otros = `PEDIDO_DUPLICADO` → `PEDIDO_EXPIRADO` → `MONTO_INCORRECTO` (orden ≠ pedido, o tickets no suman exacto) → `TICKET_EXPIRADO`.
+- Antes de llamar al banco la tienda anota los tickets del intento. Si el banco responde error del cliente (`TICKET_GASTADO`, `TICKET_EXPIRADO`, `TICKET_INVALIDO`, `MONTO_INCORRECTO`, `CERTIFICADO_INVALIDO`, `PEDIDO_DUPLICADO`) se informa igual; cualquier otro error o falla de red = `ERROR_INTERNO` (500) y el pedido sigue `CREADO`.
+- La tienda marca `PAGADO` solo con un recibo cuya firma del banco verifica y que corresponde a ese pedido y monto. El cambio es atómico (solo desde `CREADO`).
+- Un pedido que el banco ya canjeó queda `PAGADO` aunque haya expirado (el dinero ya salió).
 
 ### POST `/api/pedidos/{id_pedido}/estado`
 - Autenticación: `Cert_U` + `firma_u`. Sobre: **sí**.
 - Petición: `{ "cert_u": { ... }, "nonce": "...", "timestamp": 1762500000, "firma_u": "..." }`
 - Respuesta 200 (en sobre): `{ "id_pedido": "uuid", "estado": "PAGADO", "comprobante": { ... } }`. El comprobante es `null` si el pedido aún no se pagó.
 - Se usa tras una falla de red: la app **no reenvía los tickets**, solo consulta el estado.
+- **Conciliación:** si el pedido está `CREADO` con un intento de pago pendiente, la tienda pregunta al banco (`/api/canjes/consulta`); si el banco ya canjeó, el pedido pasa a `PAGADO` y se devuelve el comprobante. Si el banco no responde, se contesta el estado actual sin fallar.
+- Un pedido `PAGADO` nunca se muestra `EXPIRADO`. El comprobante firmado es `comprobante|v1|{id_pedido}|{id_cuenta}|{monto}|PAGADO|{timestamp}` con `timestamp` = momento del pago.
 
-Estados de pedido: `CREADO`, `PAGADO`, `RECHAZADO`, `EXPIRADO`.
+Estados de pedido: `CREADO`, `PAGADO`, `EXPIRADO` (calculado). `RECHAZADO` está reservado y la tienda no lo usa: un pago rechazado deja el pedido `CREADO`.
 
 ## 11. Flujo completo en orden
 
@@ -430,6 +450,7 @@ Cada rechazo se registra en la bitácora del servidor con su motivo (se muestra 
 | 1.2 | 2026-11-09 | Reglas de validación del banco precisadas en la sección 9 (correo en minúsculas, contraseña 8-128, pub_u canónica P-256, límites de tiempo y bloqueo). Sin cambios en endpoints ni formatos. |
 | 1.3 | 2026-11-10 | Reglas precisadas de `/api/tickets/solicitar` (límites de cantidades, máximo 50 tickets, atomicidad, vigencia, `CERTIFICADO_INVALIDO`). Sin cambios de formato. |
 | 1.4 | 2026-11-11 | Reglas precisadas de `/api/catalogo`, `/api/pedidos` y `/estado` (Cert_U exacto, items 1-10, monto máximo $10,000, precios pagables, pedido ajeno = inexistente). Sin cambios de formato. |
+| 1.5 | 2026-11-14 | Reglas precisadas de `/api/canje`, `/api/canjes/consulta`, `/pago` y `/estado` (orden de verificación, idempotencia, conciliación tras red cortada, `RECHAZADO` sin uso, comprobante en el estado). Sin cambios de formato. |
 
 ## 18. Endpoints de prueba de criptografía (solo desarrollo)
 

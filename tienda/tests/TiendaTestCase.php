@@ -2,6 +2,7 @@
 
 namespace Tests;
 
+use App\Services\BancoCliente;
 use App\Services\Canonico;
 use App\Services\CertificadoUsuario;
 use App\Services\CryptoService;
@@ -28,6 +29,7 @@ abstract class TiendaTestCase extends TestCase
     protected CryptoService $firmanteA;    // firma como la app de A
     protected CryptoService $firmanteB;
     protected CryptoService $atacante;
+    protected BancoFalso $bancoFalso;      // el banco que ve la tienda al pagar (Fase 8)
     protected string $idA;
     protected string $idB;
     protected array $certA;
@@ -55,6 +57,9 @@ abstract class TiendaTestCase extends TestCase
         $this->firmanteA = new CryptoService(self::$llaves['a'][0]);
         $this->firmanteB = new CryptoService(self::$llaves['b'][0]);
         $this->atacante = new CryptoService(self::$llaves['atacante'][0]);
+
+        $this->bancoFalso = new BancoFalso($this->banco);
+        $this->app->instance(BancoCliente::class, $this->bancoFalso);
 
         $this->seed(ProductoSeeder::class);
         $this->idA = (string) Str::uuid();
@@ -161,6 +166,70 @@ abstract class TiendaTestCase extends TestCase
         $firma = ($firmante ?? $this->firmanteA)->firmar(Canonico::consultaPedido($idPedido, $cert['id_cuenta'], $nonce, $ts));
 
         return array_merge(['cert_u' => $cert, 'nonce' => $nonce, 'timestamp' => $ts, 'firma_u' => $firma], $cambios);
+    }
+
+    // ---------------- Pagos (Fase 8) ----------------
+
+    /**
+     * Ticket firmado por el banco. Se puede pedir de otra cuenta, con otra firma, ya vencido, etc.
+     * @return array{id:string,denominacion:int,id_cuenta:string,emision:int,expiracion:int,firma_b:string}
+     */
+    protected function ticket(int $denominacion, ?string $idCuenta = null, ?CryptoService $firmante = null, ?int $emision = null, ?int $expiracion = null): array
+    {
+        $id = (string) Str::uuid();
+        $idCuenta ??= $this->idA;
+        $emision ??= self::T0;
+        $expiracion ??= $emision + 2592000;
+
+        return [
+            'id' => $id, 'denominacion' => $denominacion, 'id_cuenta' => $idCuenta, 'emision' => $emision, 'expiracion' => $expiracion,
+            'firma_b' => ($firmante ?? $this->banco)->firmar(Canonico::ticket($id, $denominacion, $idCuenta, $emision, $expiracion)),
+        ];
+    }
+
+    /** @return array<int,array> varios tickets de la cuenta A (por omisión): 300+100+50+20+20 = 490, el total de pedidoDeA() */
+    protected function ticketsDe(array $denominaciones = [300, 100, 50, 20, 20], ?string $idCuenta = null): array
+    {
+        return array_map(fn (int $d) => $this->ticket($d, $idCuenta), $denominaciones);
+    }
+
+    /**
+     * Pago firmado como la app. Opciones: cert, firmante, monto, nonce, ts. Los $cambios (de la raíz) se aplican DESPUÉS de firmar.
+     */
+    protected function pago(string $idPedido, array $tickets, array $op = [], array $cambios = []): array
+    {
+        $cert = $op['cert'] ?? $this->certA;
+        $monto = $op['monto'] ?? array_sum(array_column($tickets, 'denominacion'));
+        $nonce = $op['nonce'] ?? $this->cliente->nonce();
+        $ts = $op['ts'] ?? $this->ahora();
+        $firma = ($op['firmante'] ?? $this->firmanteA)->firmar(Canonico::orden($idPedido, $monto, array_column($tickets, 'id'), $nonce, $ts));
+        $orden = ['id_pedido' => $idPedido, 'monto' => $monto, 'tickets' => $tickets, 'nonce' => $nonce, 'timestamp' => $ts];
+
+        return array_merge(['cert_u' => $cert, 'orden' => $orden, 'firma_u' => $firma], $cambios);
+    }
+
+    protected function pagar(string $idPedido, array $cuerpo, bool $alterar = false): TestResponse
+    {
+        return $this->enviar("/api/pedidos/$idPedido/pago", $cuerpo, $alterar)[0];
+    }
+
+    /** Paga el pedido de A con sus tickets y devuelve la respuesta ya descifrada. */
+    protected function pagarOk(string $idPedido, ?array $tickets = null): array
+    {
+        $tickets ??= $this->ticketsDe();
+        [$r, $k] = $this->enviar("/api/pedidos/$idPedido/pago", $this->pago($idPedido, $tickets));
+        $r->assertStatus(200);
+
+        return $this->abrir($r, $k);
+    }
+
+    /** Consulta el estado del pedido de A y devuelve la respuesta ya descifrada. */
+    protected function estadoDe(string $idPedido): array
+    {
+        [$r, $k] = $this->enviar("/api/pedidos/$idPedido/estado", $this->consulta($idPedido));
+        $r->assertStatus(200);
+
+        return $this->abrir($r, $k);
     }
 
     /** Si se espera que no haya pasado nada: ni pedidos, ni renglones, ni nonces guardados. */

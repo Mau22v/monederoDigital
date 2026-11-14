@@ -148,4 +148,55 @@ final class Validar
 
         return $v;
     }
+
+    /** Monto de un canje en pesos: entero de 1 a 25,000 (50 tickets de 500 como máximo). */
+    public static function monto(mixed $v): int
+    {
+        if (!is_int($v) || $v < 1 || $v > self::MAX_TICKETS_POR_SOLICITUD * 500) {
+            self::falla();
+        }
+
+        return $v;
+    }
+
+    /**
+     * Ids de los tickets de un canje: lista de 1 a 50 UUID distintos.
+     * @return string[]
+     */
+    public static function idsTickets(mixed $v): array
+    {
+        if (!is_array($v) || $v === [] || !array_is_list($v) || count($v) > self::MAX_TICKETS_POR_SOLICITUD) {
+            self::falla();
+        }
+        foreach ($v as $id) {
+            self::uuid($id);
+        }
+        if (count(array_unique($v)) !== count($v)) {
+            self::falla();
+        }
+
+        return $v;
+    }
+
+    /**
+     * Orden de pago firmada por el cliente que la tienda reenvía: exactamente nonce, timestamp y firma_u.
+     * Aquí solo se revisa el FORMATO; la firma se verifica con la Pub_U de la dueña de los tickets.
+     * @return array{nonce:string,timestamp:int,firma_u:string}
+     */
+    public static function ordenCanje(mixed $v): array
+    {
+        if (!is_array($v) || array_is_list($v)) {
+            self::falla();
+        }
+        $llaves = array_keys($v);
+        sort($llaves);
+        if ($llaves !== ['firma_u', 'nonce', 'timestamp']) {
+            self::falla();
+        }
+        self::nonce($v['nonce']);
+        self::timestamp($v['timestamp']);
+        self::firmaBase64($v['firma_u']);
+
+        return $v;
+    }
 }

@@ -14,20 +14,26 @@ final class Contexto
     /** Texto breve para la bitácora cuando la operación se acepta. Nunca datos secretos. */
     public ?string $detalle = null;
 
+    /**
+     * $nonce y $timestamp son los del mensaje. Normalmente están en la raíz de los datos; en el pago
+     * (/api/pedidos/{id}/pago) son los de la orden firmada, que va anidada en "orden".
+     */
     public function __construct(
         public readonly array $datos,
         public readonly int $ahora,
         public readonly string $endpoint,
+        public readonly ?string $nonce = null,
+        public readonly ?int $timestamp = null,
     ) {
     }
 
     /**
      * Paso 7 del orden de verificación (contrato, sección 13): guardar el nonce.
-     * Se llama DESPUÉS de verificar el certificado y la firma. Si otra petición lo guardó antes, es una repetición.
+     * Se llama DESPUÉS de verificar el certificado y las firmas. Si otra petición lo guardó antes, es una repetición.
      */
     public function registrarNonce(string $origen): void
     {
-        if (!Nonce::registrar($this->datos['nonce'], $origen, $this->endpoint, $this->ahora)) {
+        if (!Nonce::registrar($this->nonce ?? $this->datos['nonce'], $origen, $this->endpoint, $this->ahora)) {
             throw new ApiError('NONCE_REPETIDO');
         }
     }

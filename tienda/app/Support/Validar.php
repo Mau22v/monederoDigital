@@ -139,4 +139,70 @@ final class Validar
 
         return $v;
     }
+
+    public const DENOMINACIONES = [500, 300, 100, 50, 20];
+    public const MAX_TICKETS_POR_PAGO = 50;
+
+    /**
+     * Ticket (contrato, sección 7): exactamente id, denominacion, id_cuenta, emision, expiracion y firma_b.
+     * Aquí solo se revisa el FORMATO; la firma del banco se verifica después (CertificadoUsuario::verificarTicket).
+     * @return array{id:string,denominacion:int,id_cuenta:string,emision:int,expiracion:int,firma_b:string}
+     */
+    public static function ticket(mixed $v): array
+    {
+        if (!is_array($v) || array_is_list($v)) {
+            self::falla();
+        }
+        $llaves = array_keys($v);
+        sort($llaves);
+        if ($llaves !== ['denominacion', 'emision', 'expiracion', 'firma_b', 'id', 'id_cuenta']) {
+            self::falla();
+        }
+        self::uuid($v['id']);
+        self::uuid($v['id_cuenta']);
+        if (!is_int($v['denominacion']) || !in_array($v['denominacion'], self::DENOMINACIONES, true)) {
+            self::falla();
+        }
+        self::timestamp($v['emision']);
+        self::timestamp($v['expiracion']);
+        self::firmaBase64($v['firma_b']);
+
+        return $v;
+    }
+
+    /**
+     * Orden de pago (contrato, sección 10): exactamente id_pedido, monto, tickets, nonce y timestamp.
+     * Son los campos que firma el cliente (la firma va aparte, en firma_u). De 1 a 50 tickets con ids distintos.
+     * @return array{id_pedido:string,monto:int,tickets:array,nonce:string,timestamp:int}
+     */
+    public static function ordenPago(mixed $v): array
+    {
+        if (!is_array($v) || array_is_list($v)) {
+            self::falla();
+        }
+        $llaves = array_keys($v);
+        sort($llaves);
+        if ($llaves !== ['id_pedido', 'monto', 'nonce', 'tickets', 'timestamp']) {
+            self::falla();
+        }
+        self::uuid($v['id_pedido']);
+        if (!is_int($v['monto']) || $v['monto'] < 1 || $v['monto'] > Pedido::MONTO_MAXIMO) {
+            self::falla();
+        }
+        self::nonce($v['nonce']);
+        self::timestamp($v['timestamp']);
+        if (!is_array($v['tickets']) || $v['tickets'] === [] || !array_is_list($v['tickets']) || count($v['tickets']) > self::MAX_TICKETS_POR_PAGO) {
+            self::falla();
+        }
+        $ids = [];
+        foreach ($v['tickets'] as $t) {
+            self::ticket($t);
+            $ids[] = $t['id'];
+        }
+        if (count(array_unique($ids)) !== count($ids)) {
+            self::falla();
+        }
+
+        return $v;
+    }
 }

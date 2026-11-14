@@ -25,6 +25,7 @@ use Throwable;
  *   6-8. certificado, firma, guardar nonce y reglas de negocio: las hace la lógica de cada endpoint.
  *
  * Opciones: 'nonce' (bool: el mensaje trae nonce y timestamp),
+ *           'anidado' (nombre del campo que contiene nonce y timestamp en lugar de la raíz; el pago usa "orden"),
  *           'validar' (Closure que recibe los datos y lanza ApiError si el formato es incorrecto).
  * La lógica recibe un Contexto y devuelve [estado HTTP, cuerpo]; el cuerpo se cifra con la misma K.
  */
@@ -55,9 +56,17 @@ class ProcesadorSobre
             if (!is_array($datos) || $datos === [] || array_is_list($datos)) {
                 throw new ApiError('FORMATO_INVALIDO');
             }
+            // Dónde viajan nonce y timestamp: en la raíz o dentro de un campo (la orden del pago).
+            $fuente = $datos;
+            if (!empty($opciones['anidado'])) {
+                $fuente = $datos[$opciones['anidado']] ?? null;
+                if (!is_array($fuente) || array_is_list($fuente)) {
+                    throw new ApiError('FORMATO_INVALIDO');
+                }
+            }
             if (!empty($opciones['nonce'])) {
-                Validar::nonce($datos['nonce'] ?? null);
-                Validar::timestamp($datos['timestamp'] ?? null);
+                Validar::nonce($fuente['nonce'] ?? null);
+                Validar::timestamp($fuente['timestamp'] ?? null);
             }
             if (isset($opciones['validar'])) {
                 ($opciones['validar'])($datos);
@@ -65,16 +74,16 @@ class ProcesadorSobre
 
             // 4 y 5. Timestamp y nonce
             if (!empty($opciones['nonce'])) {
-                if (abs($datos['timestamp'] - $ahora) > self::TOLERANCIA_SEG) {
+                if (abs($fuente['timestamp'] - $ahora) > self::TOLERANCIA_SEG) {
                     throw new ApiError('TIMESTAMP_FUERA_DE_RANGO');
                 }
-                if (Nonce::yaUsado($datos['nonce'])) {
+                if (Nonce::yaUsado($fuente['nonce'])) {
                     throw new ApiError('NONCE_REPETIDO');
                 }
             }
 
             // 6-8. Lógica del endpoint
-            $ctx = new Contexto($datos, $ahora, $endpoint);
+            $ctx = new Contexto($datos, $ahora, $endpoint, $fuente['nonce'] ?? null, $fuente['timestamp'] ?? null);
             [$http, $cuerpo] = $logica($ctx);
 
             $json = json_encode($cuerpo, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
